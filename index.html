@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Synchronized Countdown Rings with 3D Finish</title>
+    <style>
+        /* ----------------------------------- */
+        /* BASE & SCENE SETUP */
+        /* ----------------------------------- */
+        body {
+            margin: 0;
+            height: 100vh;
+            background-color: #0f0f1a;
+            color: white;
+            font-family: sans-serif;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background-color 2s ease-out;
+        }
+
+        /* Original size for Desktops/Large screens */
+        #ring-container {
+            position: relative;
+            /* Default size: 350px */
+            width: 350px; 
+            height: 350px; 
+            perspective: 0px; 
+            perspective-origin: center center;
+            transform-style: preserve-3d;
+            transition: perspective 2s ease-out;
+        }
+        
+        /* ----------------------------------- */
+        /* MOBILE OPTIMIZATION: MEDIA QUERY */
+        /* ----------------------------------- */
+        @media (max-width: 600px) {
+            /* Increase size for screens 600px wide or smaller (most phones) */
+            #ring-container {
+                /* Increased size: 450px */
+                width: 450px; 
+                height: 450px;
+            }
+        }
+        
+        /* ----------------------------------- */
+        /* SVG & RING STYLING */
+        /* Note: Since SVG sizes (width, height, viewBox) are hardcoded, 
+        the rings will automatically scale up when #ring-container grows. */
+        /* ----------------------------------- */
+        .ring-group {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform-style: preserve-3d;
+            transition: transform 0.5s ease-out;
+        }
+
+        .ring-svg {
+            position: absolute;
+            top: 0; 
+            left: 0;
+            transform: rotate(-90deg);
+        }
+
+        .ring-circle {
+            stroke-width: 15;
+            fill: transparent; 
+            transition: stroke-dashoffset 0.05s linear;
+        }
+
+        /* Colors for the Rings */
+        #outer-circle-base { stroke: #FF6B6B; } 
+        #middle-circle-base { stroke: #4ECDC4; }
+        #inner-circle-base { stroke: #FFE66D; }
+
+        /* Styling for dynamically created thickness layers */
+        .ring-layer-circle {
+            stroke-width: 15;
+            fill: transparent;
+            opacity: 0.5;
+        }
+
+        /* Final message styling */
+        .final-message {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 2rem;
+            font-weight: bold;
+            color: #FF6B6B;
+            text-shadow: 0 0 15px #FF6B6B;
+            opacity: 0;
+            transition: opacity 2s ease-in-out;
+            z-index: 100;
+            pointer-events: none;
+        }
+
+        .final-message.show {
+            opacity: 1;
+        }
+
+        .info-label {
+            position: fixed;
+            bottom: 20px;
+            text-align: center;
+            width: 100%;
+            opacity: 0.7;
+            font-size: 14px;
+            pointer-events: none;
+            color: #4ECDC4;
+            transition: opacity 1s ease-out;
+        }
+
+        .error-message {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: red;
+            font-size: 1.2rem;
+            text-align: center;
+            z-index: 100;
+        }
+    </style>
+</head>
+<body>
+
+
+<div id="ring-container">
+    <div class="ring-group" id="outer-ring-group" style="width: 350px; height: 350px; transform: translate(-50%, -50%);">
+        <svg class="ring-svg" width="350" height="350" viewBox="0 0 350 350">
+            <circle id="outer-circle-base" class="ring-circle" r="165" cx="175" cy="175" stroke-dasharray="1036.73"></circle>
+        </svg>
+    </div>
+
+    <div class="ring-group" id="middle-ring-group" style="width: 250px; height: 250px; transform: translate(-50%, -50%);">
+        <svg class="ring-svg" width="250" height="250" viewBox="0 0 250 250">
+            <circle id="middle-circle-base" class="ring-circle" r="115" cx="125" cy="125" stroke-dasharray="722.57"></circle>
+        </svg>
+    </div>
+
+    <div class="ring-group" id="inner-ring-group" style="width: 150px; height: 150px; transform: translate(-50%, -50%);">
+        <svg class="ring-svg" width="150" height="150" viewBox="0 0 150 150">
+            <circle id="inner-circle-base" class="ring-circle" r="65" cx="75" cy="75" stroke-dasharray="408.41"></circle>
+        </svg>
+    </div>
+</div>
+
+<div class="final-message" id="final-message"></div>
+
+<div class="info-label"></div>
+<div id="error-display" class="error-message" style="display:none;"></div>
+
+    <script>
+    // --- 1. CONFIGURATION & SETUP ---
+    
+    // 🎨 NEW GLOBAL FACTOR: Adjust this value to control the 3D rotation speed.
+    // 1.0 is the original speed. 2.0 is double speed. 0.5 is half speed.
+    const ROTATION_SPEED_FACTOR = 1.2; 
+
+    const MS_PER_MINUTE = 60 * 1000;
+    const MS_PER_HOUR = 60 * MS_PER_MINUTE;
+
+    function getTimestampFromParam(paramName, defaultValue) {
+        const params = new URLSearchParams(window.location.search);
+        let dateString = params.get(paramName);
+
+        if (!dateString) {
+            dateString = defaultValue;
+        } else {
+            dateString = dateString.replace(/\s/g, '+');
+            dateString = dateString.replace(/(\+\d{2}):(\d{2})/, '$1$2');
+        }
+
+        const timestamp = new Date(dateString).getTime();
+        return isNaN(timestamp) ? null : timestamp;
+    }
+    
+    // ... (rest of the initial variable definitions, constants, and helper functions)
+
+    const DEFAULT_START = '2025-11-24T21:22:15+1300';
+    const DEFAULT_END = '2025-12-03T06:30:00+1300';
+
+    const START_TIME_MS = getTimestampFromParam('start', DEFAULT_START);
+    const END_TIME_MS = getTimestampFromParam('end', DEFAULT_END);
+    
+    const TOTAL_DURATION_MS = END_TIME_MS - START_TIME_MS;
+
+    const C = { outer: 1036.73, middle: 722.57, inner: 408.41 };
+    
+    const ringContainer = document.getElementById('ring-container');
+    const outerRingGroup = document.getElementById('outer-ring-group');
+    const middleRingGroup = document.getElementById('middle-ring-group');
+    const innerRingGroup = document.getElementById('inner-ring-group');
+
+    const outerSVG = outerRingGroup.querySelector('.ring-svg');
+    const middleSVG = middleRingGroup.querySelector('.ring-svg');
+    const innerSVG = innerRingGroup.querySelector('.ring-svg');
+    
+    const outerCircle = document.getElementById('outer-circle-base');
+    const middleCircle = document.getElementById('middle-circle-base');
+    const innerCircle = document.getElementById('inner-circle-base');
+    const infoLabel = document.querySelector('.info-label');
+    const finalMessage = document.getElementById('final-message');
+    const errorDisplay = document.getElementById('error-display');
+
+    let animationFrameId; 
+    const THICKNESS_LAYERS = 10; 
+    const LAYER_SPACING_PX = 1;
+
+    // --- 2. DYNAMIC 3D THICKNESS FUNCTIONS (No changes needed here) ---
+
+    function create3DLayers(baseSvgElement, ringGroupElement, baseCircleId, circumferenceValue, color) {
+        const baseCircle = document.getElementById(baseCircleId);
+        ringGroupElement.querySelectorAll('.ring-layer-svg').forEach(el => el.remove()); 
+
+        for (let i = 0; i < THICKNESS_LAYERS; i++) {
+            const layerSvg = baseSvgElement.cloneNode(true);
+            layerSvg.classList.add('ring-layer-svg');
+
+            const layerCircle = layerSvg.querySelector('.ring-circle');
+            layerCircle.id = '';
+            layerCircle.classList.remove('ring-circle');
+            layerCircle.classList.add('ring-layer-circle');
+            layerCircle.style.stroke = color;
+            layerCircle.style.strokeDashoffset = 0; 
+
+            const zOffset = (i - (THICKNESS_LAYERS / 2)) * LAYER_SPACING_PX;
+            
+            layerSvg.style.transform = `rotate(-90deg) translateZ(${zOffset}px)`;
+            
+            ringGroupElement.appendChild(layerSvg);
+        }
+        ringGroupElement.appendChild(baseSvgElement); 
+        baseCircle.style.strokeDashoffset = 0;
+        baseCircle.style.stroke = color;
+    }
+
+    function remove3DLayers(ringGroupElement) {
+        ringGroupElement.querySelectorAll('.ring-layer-svg').forEach(el => el.remove());
+    }
+
+    // --- 3. COUNTDOWN COMPLETE ANIMATION ---
+    let rotationTime = 0;
+    let thicknessApplied = false;
+
+    function countdownCompleteAnimation() {
+        infoLabel.style.opacity = 0; 
+        finalMessage.classList.add('show');
+        document.body.style.backgroundColor = '#000000';
+
+        ringContainer.style.perspective = '1000px'; 
+        ringContainer.style.transform = 'rotateX(-15deg) rotateY(15deg)';
+
+        if (!thicknessApplied) {
+            create3DLayers(outerSVG, outerRingGroup, 'outer-circle-base', C.outer, '#FF6B6B');
+            create3DLayers(middleSVG, middleRingGroup, 'middle-circle-base', C.middle, '#4ECDC4');
+            create3DLayers(innerSVG, innerRingGroup, 'inner-circle-base', C.inner, '#FFE66D');
+            thicknessApplied = true;
+        }
+
+        function rotateRings3D(timestamp) {
+            if (!rotationTime) rotationTime = timestamp;
+            const elapsedSinceCompletion = (timestamp - rotationTime) / 1000;
+
+            // --- Rotation Speeds Scaled by Factor ---
+            const factor = ROTATION_SPEED_FACTOR;
+
+            // Outer Ring Group: (30 deg/s and 10 deg/s)
+            outerRingGroup.style.transform = `translate(-50%, -50%) rotateX(${elapsedSinceCompletion * (30 * factor)}deg) rotateY(${elapsedSinceCompletion * (10 * factor)}deg)`;
+            
+            // Middle Ring Group: (40 deg/s and 15 deg/s)
+            middleRingGroup.style.transform = `translate(-50%, -50%) rotateY(${elapsedSinceCompletion * (40 * factor)}deg) rotateZ(${elapsedSinceCompletion * (15 * factor)}deg)`;
+            
+            // Inner Ring Group: (50 deg/s and -50 deg/s)
+            innerRingGroup.style.transform = `translate(-50%, -50%) rotateX(${elapsedSinceCompletion * (50 * factor)}deg) rotateY(${elapsedSinceCompletion * (-50 * factor)}deg)`;
+
+            requestAnimationFrame(rotateRings3D);
+        }
+
+        requestAnimationFrame(rotateRings3D);
+    }
+    
+    // --- 4. PROGRESS LOGIC (No changes needed here) ---
+    function updateProgress() {
+        const NOW_MS = Date.now();
+        
+        if (NOW_MS >= END_TIME_MS) {
+            cancelAnimationFrame(animationFrameId);
+            countdownCompleteAnimation();
+            return;
+        }
+        
+        const ELAPSED_MS = NOW_MS - START_TIME_MS;
+        const REMAINING_MS = END_TIME_MS - NOW_MS;
+
+        // A. OUTER RING (Overall Countdown Progress)
+        const overallFraction = ELAPSED_MS / TOTAL_DURATION_MS;
+        const outerOffset = C.outer * (1 - overallFraction);
+        outerCircle.style.strokeDashoffset = outerOffset;
+
+        // B. MIDDLE RING (Synchronized Minutes Progress: Last hour cycle)
+        const minuteCycleRemaining = REMAINING_MS % MS_PER_HOUR;
+        const middleFraction = 1 - (minuteCycleRemaining / MS_PER_HOUR);
+        const middleOffset = C.middle * (1 - middleFraction);
+        middleCircle.style.strokeDashoffset = middleOffset;
+
+        // C. INNER RING (Synchronized Seconds Progress: Last minute cycle)
+        const secondCycleRemaining = REMAINING_MS % MS_PER_MINUTE;
+        const innerFraction = 1 - (secondCycleRemaining / MS_PER_MINUTE);
+        const innerOffset = C.inner * (1 - innerFraction);
+        innerCircle.style.strokeDashoffset = innerOffset;
+        
+        animationFrameId = requestAnimationFrame(updateProgress);
+    }
+    
+    // --- 5. INITIALIZATION (No changes needed here) ---
+
+    if (START_TIME_MS === null || END_TIME_MS === null || TOTAL_DURATION_MS <= 0) {
+        ringContainer.style.display = 'none';
+        infoLabel.style.display = 'none';
+        errorDisplay.style.display = 'block';
+        errorDisplay.innerText = 'ERROR: Invalid date parameters. Please ensure start and end times are valid and the start time is before the end time.';
+    } else {
+        remove3DLayers(outerRingGroup);
+        remove3DLayers(middleRingGroup);
+        remove3DLayers(innerRingGroup);
+
+        if (Date.now() >= END_TIME_MS) {
+             countdownCompleteAnimation();
+        } else {
+             updateProgress();
+        }
+    }
+</script>
+</body>
+</html>
