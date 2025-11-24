@@ -20,4 +20,4 @@ liamsimpkin.com/◎?start=2025-11-24T21:22:15+13:00&end=2025-12-03T06:30:00+13:0
 
 **How it works**: Three synchronized rings track overall progress (outer), hourly cycles (middle), and minute cycles (inner). When the countdown completes, the rings transform into a rotating 3D gyroscope.
 
-![3D Rings](rings.png)
+<!-- ![3D Rings](rings.png) -->
