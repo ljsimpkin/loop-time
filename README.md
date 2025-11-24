@@ -1,4 +1,4 @@
-# Loop Time
+# ◎ Loop Time
 
 Dynamic, responsive countdown rings with a 3D gyroscope-like finish.
 
